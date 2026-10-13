@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Vectorize — image to vector, in your browser</title>
+    <meta name="description" content="Upscale and convert any image (PNG, JPG, WebP, HEIC, TIFF, PSD, …) into a clean vector (SVG, PDF, EPS, DXF). Runs entirely in your browser — nothing is uploaded." />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Vectorize home">
+        <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><use href="#logo" /></svg>
+        <span>Vectorize</span>
+      </a>
+      <p class="tagline">Upscale &amp; trace any image to clean vectors — 100% in your browser</p>
+      <div class="topbar-actions">
+        <button id="btn-new" class="btn ghost" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          New image
+        </button>
+      </div>
+    </header>
+
+    <main class="app" id="app" data-state="empty">
+      <section class="stage" aria-label="Preview">
+        <!-- Empty state -->
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-card">
+            <div class="dz-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48"><path d="M24 31V13m0 0-7 7m7-7 7 7" /><path d="M10 31v4a3 3 0 0 0 3 3h22a3 3 0 0 0 3-3v-4" /></svg>
+            </div>
+            <h1>Drop an image to vectorize</h1>
+            <p class="muted">or <label for="file-input" class="link">browse files</label>, or paste with <kbd>Ctrl</kbd>+<kbd>V</kbd></p>
+            <p class="formats">PNG · JPG · WebP · GIF · BMP · AVIF · SVG · HEIC · TIFF · PSD · TGA · JXL · RAW · and 100+ more</p>
+            <button id="btn-sample" class="btn secondary">Try a sample image</button>
+            <p class="privacy">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6l-7-3Z" /></svg>
+              Your image never leaves your device.
+            </p>
+          </div>
+          <input type="file" id="file-input" accept="image/*,.heic,.heif,.avif,.jxl,.tif,.tiff,.psd,.xcf,.tga,.dds,.pcx,.qoi,.exr,.hdr,.jp2,.dng,.cr2,.cr3,.nef,.arw,.orf,.rw2,.raf,.raw,.ico,.svg" hidden />
+        </div>
+
+        <!-- Viewer -->
+        <div class="viewer" id="viewer">
+          <div class="viewer-toolbar">
+            <div class="segmented" role="radiogroup" aria-label="View" id="view-mode">
+              <button role="radio" data-mode="compare" aria-checked="true">Compare</button>
+              <button role="radio" data-mode="original" aria-checked="false">Original</button>
+              <button role="radio" data-mode="vector" aria-checked="false">Vector</button>
+              <button role="radio" data-mode="outlines" aria-checked="false">Outlines</button>
+            </div>
+            <div class="zoom">
+              <button class="icon-btn" id="zoom-out" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14" /></svg></button>
+              <button class="zoom-label" id="zoom-label" title="Reset to 100%">100%</button>
+              <button class="icon-btn" id="zoom-in" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
+              <button class="icon-btn" id="zoom-fit" aria-label="Fit to screen" title="Fit (double-click)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
+            </div>
+          </div>
+          <div class="viewport" id="viewport" tabindex="0" aria-label="Image preview. Scroll to zoom, drag to pan.">
+            <img class="layer orig" id="img-orig" alt="Original image" draggable="false" />
+            <div class="clip" id="clip"><img class="layer vec" id="img-vec" alt="Vectorized image" draggable="false" /></div>
+            <div class="divider" id="divider"><span class="handle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 7-5 5 5 5M15 7l5 5-5 5" /></svg></span></div>
+            <span class="corner-tag left">Original</span>
+            <span class="corner-tag right">Vector</span>
+          </div>
+          <div class="progress" id="progress" hidden>
+            <div class="progress-bar"><span id="progress-fill"></span></div>
+            <span id="progress-text" aria-live="polite">Working…</span>
+          </div>
+          <div class="statusbar" id="stats" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <aside class="panel" aria-label="Settings">
+        <div class="panel-scroll">
+          <section class="group">
+            <h2>Upscale</h2>
+            <div class="field">
+              <span class="label">Factor</span>
+              <div class="segmented" role="radiogroup" aria-label="Upscale factor" id="opt-upscale">
+                <button role="radio" data-value="0" aria-checked="true">Auto</button>
+                <button role="radio" data-value="1" aria-checked="false">1×</button>
+                <button role="radio" data-value="2" aria-checked="false">2×</button>
+                <button role="radio" data-value="4" aria-checked="false">4×</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label">Method</span>
+              <div class="segmented" role="radiogroup" aria-label="Upscale method" id="opt-method">
+                <button role="radio" data-value="classic" aria-checked="true">Classic</button>
+                <button role="radio" data-value="ai" aria-checked="false">AI (ESRGAN)</button>
+              </div>
+              <p class="hint" id="method-hint">Fast, sharp resampling. Use AI for small or blurry photos.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="opt-denoise" />
+              <span class="track"></span>
+              <span>Denoise <small class="muted">— for photos &amp; JPEG artifacts</small></span>
+            </label>
+          </section>
+
+          <section class="group">
+            <h2>Colors</h2>
+            <div class="field">
+              <label class="label" for="opt-colors">Palette size</label>
+              <select id="opt-colors">
+                <option value="0" selected>Auto</option>
+                <option value="2">2 — black &amp; white</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+                <option value="12">12</option>
+                <option value="16">16</option>
+                <option value="24">24</option>
+                <option value="32">32</option>
+                <option value="48">48</option>
+                <option value="64">64</option>
+              </select>
+            </div>
+            <div class="palette" id="palette" aria-label="Detected colors"></div>
+          </section>
+
+          <section class="group">
+            <h2>Shapes</h2>
+            <div class="field">
+              <label class="label" for="opt-speckle">Remove specks <output id="out-speckle">4 px</output></label>
+              <input type="range" id="opt-speckle" min="0" max="60" step="1" value="4" />
+            </div>
+            <div class="field">
+              <label class="label" for="opt-smooth">Smoothness <output id="out-smooth">0.50</output></label>
+              <input type="range" id="opt-smooth" min="0.2" max="3" step="0.05" value="0.5" />
+            </div>
+            <div class="field">
+              <label class="label" for="opt-corner">Corner sharpness <output id="out-corner">130°</output></label>
+              <input type="range" id="opt-corner" min="90" max="170" step="5" value="130" />
+              <p class="hint">Bends sharper than this angle stay crisp corners.</p>
+            </div>
+          </section>
+
+          <section class="group">
+            <h2>Output</h2>
+            <div class="field">
+              <span class="label">Layering</span>
+              <div class="segmented" role="radiogroup" aria-label="Layering" id="opt-layering">
+                <button role="radio" data-value="stacked" aria-checked="true">Stacked</button>
+                <button role="radio" data-value="cutouts" aria-checked="false">Cutouts</button>
+              </div>
+              <p class="hint" id="layering-hint">Shapes overlap like paper cut-outs on top of each other — no seams, easy to edit.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="opt-gap" />
+              <span class="track"></span>
+              <span>Gap filler <small class="muted">— hide hairline seams</small></span>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="opt-bg" />
+              <span class="track"></span>
+              <span>Remove background</span>
+            </label>
+          </section>
+        </div>
+
+        <section class="download">
+          <div class="download-row">
+            <select id="dl-format" aria-label="Download format">
+              <optgroup label="Vector">
+                <option value="svg" selected>SVG</option>
+                <option value="pdf">PDF</option>
+                <option value="eps">EPS</option>
+                <option value="dxf">DXF (CAD)</option>
+              </optgroup>
+              <optgroup label="Image">
+                <option value="png">PNG</option>
+                <option value="jpg">JPG</option>
+                <option value="webp">WebP</option>
+                <option value="upscaled">Upscaled original (PNG)</option>
+              </optgroup>
+            </select>
+            <select id="dl-scale" aria-label="Image size" hidden>
+              <option value="1">1×</option>
+              <option value="2" selected>2×</option>
+              <option value="4">4×</option>
+              <option value="8">8×</option>
+            </select>
+          </div>
+          <p class="hint" id="dl-hint"></p>
+          <div class="download-row">
+            <button class="btn primary" id="btn-download" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" /></svg>
+              Download
+            </button>
+            <button class="btn secondary" id="btn-copy" disabled title="Copy SVG markup">Copy SVG</button>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><span>Drop to vectorize</span></div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="logo" viewBox="0 0 32 32">
+        <rect width="32" height="32" rx="8" fill="var(--accent)" />
+        <path d="M7 22c4-9 8-13 18-13" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" />
+        <circle cx="7" cy="22" r="2.6" fill="#fff" />
+        <circle cx="25" cy="9" r="2.6" fill="#fff" />
+        <rect x="13.5" y="10.5" width="4" height="4" rx="1" fill="none" stroke="#fff" stroke-width="1.6" />
+      </symbol>
+    </svg>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
