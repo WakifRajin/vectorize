@@ -28,7 +28,7 @@ export const DEFAULT_OPTIONS: VectorizeOptions = {
   upscale: 0,
   denoise: false,
   colors: 0,
-  speckle: 4,
+  speckle: 1,
   smoothness: 0.5,
   cornerAngle: 130,
   layering: 'stacked',

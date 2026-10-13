@@ -232,3 +232,21 @@ export function removeSlivers(
   }
   return index;
 }
+
+/** Mean thickness of each region: 2·area / perimeter (≈ stroke width for lines). */
+export function regionThickness(labels: Int32Array, w: number, h: number, count: number, area: Int32Array): Float32Array {
+  const perim = new Int32Array(count);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      const a = labels[p];
+      if (x === 0) perim[a]++;
+      if (y === 0) perim[a]++;
+      if (x === w - 1 || labels[p + 1] !== a) { perim[a]++; if (x < w - 1) perim[labels[p + 1]]++; }
+      if (y === h - 1 || labels[p + w] !== a) { perim[a]++; if (y < h - 1) perim[labels[p + w]]++; }
+    }
+  }
+  const t = new Float32Array(count);
+  for (let r = 0; r < count; r++) t[r] = perim[r] ? (2 * area[r]) / perim[r] : Infinity;
+  return t;
+}

@@ -435,15 +435,31 @@ export function fitChain(
     const l = lineFit(getS, i - r, i + r);
     return [l.dx, l.dy];
   };
-  const q = [0, Math.round(n / 4), Math.round(n / 2), Math.round((3 * n) / 4), n];
-  for (let j = 0; j < 4; j++) {
-    const a = q[j], b = q[j + 1];
+  // The loop has to be cut somewhere. Cut where it is straightest (a cut in the middle of a
+  // straight run is invisible), once in each half; the curve fitter adds further splits where
+  // they are needed. Cutting by sample count could land in the middle of a tight curve, such as
+  // the round cap of a stroke, and make it lopsided.
+  const r = Math.max(2, Math.min(2 * P.arm, Math.floor(n / 8)));
+  const bend = (i: number) => {
+    const ax = getS(i, 0) - getS(i - r, 0), ay = getS(i, 1) - getS(i - r, 1);
+    const bx = getS(i + r, 0) - getS(i, 0), by = getS(i + r, 1) - getS(i, 1);
+    return Math.abs(Math.atan2(ax * by - ay * bx, ax * bx + ay * by));
+  };
+  const turn = Float64Array.from({ length: n }, (_, i) => bend(i));
+  let c0 = 0;
+  for (let i = 1; i < n; i++) if (turn[i] < turn[c0] - 1e-9) c0 = i;
+  let c1 = c0 + (n >> 1);
+  for (let i = c0 + Math.ceil(n / 4); i <= c0 + Math.floor((3 * n) / 4); i++) if (turn[at(i)] < turn[at(c1)] - 1e-9) c1 = i;
+  const cuts = [c0, c1, c0 + n];
+  for (let j = 0; j < 2; j++) {
+    const a = cuts[j], b = cuts[j + 1];
     const sub = new Float64Array((b - a + 1) * 2);
     for (let i = a; i <= b; i++) { sub[(i - a) * 2] = s[at(i) * 2]; sub[(i - a) * 2 + 1] = s[at(i) * 2 + 1]; }
     const ta = tangent(a), tb = tangent(b);
     fitSpan(sub, ta, [-tb[0], -tb[1]], P, segs);
   }
-  return { x0: s[0], y0: s[1], segs: tidy(s[0], s[1], segs, P.tolerance) };
+  const x0 = s[at(c0) * 2], y0 = s[at(c0) * 2 + 1];
+  return { x0, y0, segs: tidy(x0, y0, segs, P.tolerance) };
 }
 
 /**

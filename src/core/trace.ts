@@ -37,6 +37,21 @@ const DX = [1, 0, -1, 0];
 const DY = [0, 1, 0, -1];
 
 /**
+ * Fitting settings for a boundary of a shape that is only `t` pixels thick. With the normal
+ * tolerance both sides of a thin line could be fitted onto the same curve and the line would
+ * collapse; smoothing over more than its width would round it into a blob.
+ */
+function paramsFor(P: FitParams, t: number): FitParams {
+  if (!(t < 4 * P.tolerance)) return P;
+  return {
+    ...P,
+    tolerance: Math.max(0.35, Math.min(P.tolerance, 0.3 * t)),
+    smoothing: Math.min(P.smoothing, 0.5 * t),
+    arm: Math.max(2, Math.min(P.arm, Math.round(0.8 * t))),
+  };
+}
+
+/**
  * Where three colours meet, anti-aliasing blends all of them, so the pixel junction is often a
  * pixel or two away from where the edges really meet. Move each junction to the point closest
  * (least squares) to the straight continuations of all chains ending there. All chains share
@@ -113,6 +128,8 @@ export function traceRegions(
   regionCount: number,
   P: FitParams,
   onProgress?: (f: number) => void,
+  /** Mean thickness (2·area/perimeter) of each region, in working pixels. */
+  thickness?: Float32Array,
 ): TracedLoop[][] {
   const W1 = w + 1;
   const reg = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? -1 : labels[y * w + x]);
@@ -205,10 +222,11 @@ export function traceRegions(
   // Fit every chain once.
   for (let i = 0; i < chains.length; i++) {
     const c = chains[i];
-    if (c.closed) c.fit = fitChain(c.pts, true, P);
+    const Pc = thickness ? paramsFor(P, Math.min(c.left >= 0 ? thickness[c.left] : Infinity, c.right >= 0 ? thickness[c.right] : Infinity)) : P;
+    if (c.closed) c.fit = fitChain(c.pts, true, Pc);
     else {
       const a = jpos.get(c.v0)!, b = jpos.get(c.v1)!;
-      c.fit = fitChain(c.pts, false, P, a[0], a[1], b[0], b[1]);
+      c.fit = fitChain(c.pts, false, Pc, a[0], a[1], b[0], b[1]);
     }
     if (onProgress && (i & 1023) === 0) onProgress(i / chains.length);
   }

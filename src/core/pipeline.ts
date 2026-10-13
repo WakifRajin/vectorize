@@ -1,5 +1,5 @@
 import { quantize, TRANSPARENT } from './quantize.ts';
-import { labelRegions, removeSlivers, removeSpeckles } from './regions.ts';
+import { labelRegions, regionThickness, removeSlivers, removeSpeckles } from './regions.ts';
 import { bilateral, resize } from './resample.ts';
 import { traceRegions, type TracedLoop } from './trace.ts';
 import { CMD_C, CMD_L, CMD_M, CMD_Z, type ProgressFn, type RGBAImage, type VectorImage, type VectorizeOptions, type VectorShape } from './types.ts';
@@ -43,13 +43,16 @@ export function vectorize(input: RGBAImage, srcW: number, srcH: number, opts: Ve
     progress('Denoising', 0.02);
     img = bilateral(img);
   }
+  // Source-resolution pixels: they give a truer reading of thin strokes' colour than the
+  // (softer) upscaled image. Not available when the input arrives already upscaled.
+  const base = preUpscaled ? undefined : img;
   if (img.width !== w || img.height !== h) {
     progress('Upscaling', 0.06);
     img = resize(img, w, h);
   }
 
   progress('Finding colours', 0.15);
-  const q = quantize(img, opts.colors, s);
+  const q = quantize(img, opts.colors, s, base !== img ? base : undefined);
 
   progress('Cleaning up regions', 0.3);
   const minArea = Math.max(1, Math.round(opts.speckle * s * s));
@@ -87,6 +90,7 @@ export function vectorize(input: RGBAImage, srcW: number, srcH: number, opts: Ve
       smoothing: 0.8 * Math.max(1, s),
     },
     (f) => progress('Tracing curves', 0.4 + f * 0.5),
+    regionThickness(regions.labels, w, h, regions.count, regions.area),
   );
 
   progress('Assembling shapes', 0.92);

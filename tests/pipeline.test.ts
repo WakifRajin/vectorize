@@ -173,6 +173,94 @@ for (const layering of ['cutouts', 'stacked'] as const) {
   check('aliased disc: area within 3% of the true circle', Math.abs(area - 300 * Math.PI) / (300 * Math.PI) < 0.03, `${area.toFixed(1)} vs ${(300 * Math.PI).toFixed(1)}`);
 }
 
+// --- Test 2d: thin lines, dots and strokes survive (text / line art) --------------------------
+{
+  const w = 220, h = 120;
+  const segDist = (x: number, y: number, ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+  };
+  const widths = [0.8, 1, 1.5, 2.5];
+  const feats: Shape[] = [];
+  widths.forEach((lw, i) => {
+    // a diagonal and a horizontal line per width
+    feats.push({ color: BLACK, inside: (x, y) => segDist(x, y, 10 + i * 50, 10, 45 + i * 50, 50) < lw / 2 });
+    feats.push({ color: BLACK, inside: (x, y) => segDist(x, y, 10 + i * 50, 60, 45 + i * 50, 60) < lw / 2 });
+  });
+  feats.push({ color: BLACK, inside: (x, y) => Math.abs(Math.hypot(x - 30, y - 92) - 12) < 0.6 }); // thin ring
+  for (let k = 0; k < 5; k++) feats.push({ color: BLACK, inside: (x, y) => Math.hypot(x - (60 + k * 8), y - 92) < 1.1 }); // dots
+  feats.push({ color: RED, inside: (x, y) => segDist(x, y, 120, 80, 200, 105) < 0.75 }); // thin coloured stroke
+  const img = render(w, h, WHITE, feats);
+  const { vector } = vectorize(img, w, h, { ...DEFAULT_OPTIONS, removeBackground: true });
+  writeFileSync(`${out}/thin-lines.svg`, toSVG(vector, { gapFiller: false }));
+
+  // Rasterise the result (point-in-polygon on a grid, respecting paint order) and compare.
+  const layers: { ink: boolean; polys: number[][][] }[] = [];
+  for (const s of vector.shapes) {
+    const polys: number[][][] = [];
+    let cur: number[][] = [];
+    let cx = 0, cy = 0;
+    walkPath(s.path, {
+      M(x, y) { cur = [[x, y]]; cx = x; cy = y; },
+      L(x, y) { cur.push([x, y]); cx = x; cy = y; },
+      C(x1, y1, x2, y2, x, y) {
+        for (let i = 1; i <= 8; i++) {
+          const t = i / 8, m = 1 - t;
+          cur.push([m * m * m * cx + 3 * m * m * t * x1 + 3 * m * t * t * x2 + t * t * t * x, m * m * m * cy + 3 * m * m * t * y1 + 3 * m * t * t * y2 + t * t * t * y]);
+        }
+        cx = x; cy = y;
+      },
+      Z() { polys.push(cur); },
+    });
+    layers.push({ ink: s.r + s.g + s.b < 600, polys });
+  }
+  const inside = (polys: number[][][], x: number, y: number) => {
+    let wn = 0;
+    for (const p of polys)
+      for (let i = 0; i < p.length; i++) {
+        const [ax, ay] = p[i], [bx, by] = p[(i + 1) % p.length];
+        if (ay <= y) { if (by > y && (bx - ax) * (y - ay) - (x - ax) * (by - ay) > 0) wn++; }
+        else if (by <= y && (bx - ax) * (y - ay) - (x - ax) * (by - ay) < 0) wn--;
+      }
+    return wn !== 0;
+  };
+  // is the topmost shape at (x, y) ink (non-white)?
+  const winding = (x: number, y: number) => {
+    for (let i = layers.length - 1; i >= 0; i--) if (inside(layers[i].polys, x, y)) return layers[i].ink;
+    return false;
+  };
+  // fraction of each feature's skeleton samples that are covered by the vector
+  const covered = (pts: number[][]) => pts.filter(([x, y]) => winding(x, y)).length / pts.length;
+  const along = (ax: number, ay: number, bx: number, by: number) => Array.from({ length: 30 }, (_, i) => [ax + ((bx - ax) * (i + 0.5)) / 30, ay + ((by - ay) * (i + 0.5)) / 30]);
+  widths.forEach((lw, i) => {
+    const d = covered(along(10 + i * 50, 10, 45 + i * 50, 50));
+    const hz = covered(along(10 + i * 50, 60, 45 + i * 50, 60));
+    check(`${lw}px lines kept`, d > 0.85 && hz > 0.85, `diagonal ${(d * 100).toFixed(0)}%, horizontal ${(hz * 100).toFixed(0)}%`);
+  });
+  const ring = covered(Array.from({ length: 40 }, (_, i) => [30 + 12 * Math.cos((i / 40) * 2 * Math.PI), 92 + 12 * Math.sin((i / 40) * 2 * Math.PI)]));
+  check('thin ring kept', ring > 0.85, `${(ring * 100).toFixed(0)}%`);
+  const dots = covered(Array.from({ length: 5 }, (_, k) => [60 + k * 8, 92]));
+  check('small dots kept', dots === 1, `${(dots * 100).toFixed(0)}%`);
+  const red = covered(along(120, 80, 200, 105));
+  check('thin coloured stroke kept', red > 0.85, `${(red * 100).toFixed(0)}%`);
+  // and nothing much appears where the image is empty
+  const empty = covered(along(5, 112, 215, 112));
+  check('no phantom shapes', empty === 0, `${(empty * 100).toFixed(0)}%`);
+  // overall shape fidelity: intersection-over-union of ink on a fine grid
+  let inter = 0, uni = 0;
+  for (let y = 0.25; y < h; y += 0.5)
+    for (let x = 0.25; x < w; x += 0.5) {
+      const ideal = feats.some((f) => f.inside(x, y));
+      const got = winding(x, y);
+      if (ideal && got) inter++;
+      if (ideal || got) uni++;
+    }
+  let idealA = 0, gotA = 0;
+  for (let y = 0.25; y < h; y += 0.5) for (let x = 0.25; x < w; x += 0.5) { if (feats.some((f) => f.inside(x, y))) idealA++; if (winding(x, y)) gotA++; }
+  check('thin features: ink IoU ≥ 0.7', inter / uni >= 0.7, `IoU ${(inter / uni).toFixed(3)}, ink area ${((gotA / idealA) * 100).toFixed(0)}% of ideal`);
+}
+
 // --- Test 3: noisy photo-like gradient doesn't explode ----------------------------------------
 {
   const w = 300, h = 200;
